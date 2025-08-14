@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Par Order Tracker</title>
+<title>Par Order – Categorized</title>
 <style>
 :root{ --bg:#0b1020; --card:#111731; --ink:#f6f7fb; --muted:#9aa3b2; --accent:#5ed9a6; --line:#202a52; }
 *{ box-sizing:border-box }
@@ -34,6 +34,15 @@ td input{ width:100% }
 .hr{ height:1px; background:#232a54; margin:12px 0 }
 .small{ font-size:12px }
 .error{ background:#3b1b1b; border:1px solid #6b2a2a; color:#ffd7d7; padding:12px; border-radius:12px; }
+
+/* 分类/搜索 UI */
+.searchbar{ width:100%; margin:8px 0 8px }
+.tabrow{ display:flex; gap:8px; flex-wrap:wrap; margin:6px 0 10px }
+.tabrow button{ padding:6px 10px; border-radius:999px; border:1px solid #28315f; background:#0e1430 }
+.tabrow button.active{ border-color:#2abd85; background:linear-gradient(180deg,#18b76a22,#129f5a22) }
+.section-head{ display:flex; align-items:center; justify-content:space-between; padding:10px 12px; margin:6px 0 8px; border:1px solid #232a54; border-radius:10px; background:#0c1332; font-weight:700; letter-spacing:.2px }
+.section-head button{ background:#0e1430; border:1px solid #28315f; border-radius:10px; padding:6px 10px }
+.hidden{ display:none }
 </style>
 </head>
 <body>
@@ -42,147 +51,196 @@ td input{ width:100% }
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
   (function(){
-    // ====== YOUR CONFIG (filled) ======
+    // ===== YOUR PROJECT CONFIG =====
     const SUPABASE_URL = "https://ehfhcgzsirgebrfofaph.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoZmhjZ3pzaXJnZWJyZm9mYXBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1OTg5MjMsImV4cCI6MjA3MDE3NDkyM30.OOnzt-mCdQNYU3b17O3vtDTrPA2AmJPij8OhfnvMAN0";
-    const PASSWORD = "000"; // <- 修改为你的内部密码
+    const PASSWORD = "000"; // 内部密码
 
-    let db = null;
-    try{ db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }catch(e){ console.warn(e); }
+    let db=null; try{ db=supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }catch(e){ console.warn(e); }
 
-    // ====== STATE ======
+    // ===== STATE =====
     const STATE = {
       authed:false,
       name:"",
       period:(()=>{
-        const qs = new URLSearchParams(location.search);
-        const ov = qs.get("period");
-        if (ov==="MT"||ov==="FS") return ov;
-        const d=new Date().getDay(); // 0 Sun 3 Wed
-        if (d===0) return "FS";
-        if (d===3) return "MT";
-        if (d>=1&&d<=4) return "MT";
-        return "FS";
+        const qs=new URLSearchParams(location.search); const ov=qs.get("period");
+        if(ov==="MT"||ov==="FS") return ov;
+        const d=new Date().getDay(); if(d===0) return "FS"; if(d===3) return "MT"; if(d>=1&&d<=4) return "MT"; return "FS";
       })(),
-      items:[],
-      stocks:{},         // 只在用户输入后记录该行：未输入即不计算
+      items:[],                // 全量 items（含 category / sort_index）
+      stocks:{},               // 仅记录“输入过库存”的行（id -> number）
+      filter:{ q:"", cat:"ALL" },  // 搜索 & 分类筛选
       submitting:false,
       load_error:""
     };
 
-    // ====== UTILS ======
     const $ = id=>document.getElementById(id);
     const el=(tag,cls,html)=>{const n=document.createElement(tag); if(cls)n.className=cls; if(html!=null)n.innerHTML=html; return n;};
-    const escapeHtml=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+    const escapeHtml = s => (s||"").replace(/[&<>]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
-    // ====== RENDER ROOT ======
+    // ===== RENDER ROOT =====
     function render(){
-      const root = $("app"); root.innerHTML="";
+      const root=$("app"); root.innerHTML="";
       if(!STATE.authed){ root.appendChild(ViewLogin()); return; }
       if(STATE.load_error){ const w=el("div","wrap"); const c=el("div","card section"); c.appendChild(el("div","error",escapeHtml(STATE.load_error))); w.appendChild(c); root.appendChild(w); return; }
       if(!STATE.items.length){ const w=el("div","wrap"); const c=el("div","card section"); c.appendChild(el("p",null,"Loading items from Supabase…")); w.appendChild(c); root.appendChild(w); return; }
       root.appendChild(ViewMain());
     }
 
-    // ====== LOGIN VIEW ======
+    // ===== LOGIN =====
     function ViewLogin(){
       const w=el("div","wrap");
       const c=el("div","card section");
       c.appendChild(el("h1",null,"Par Order – Login"));
-      c.appendChild(el("p","muted","Enter password to proceed. The period is auto-chosen by weekday."));
+      c.appendChild(el("p","muted","Enter password to proceed. Period is auto-chosen by weekday."));
       const row=el("div","row");
       const name=el("input"); name.type="text"; name.placeholder="Your name/initials (optional)";
-      const pwd =el("input"); pwd.type="password"; pwd.placeholder="Password";
-      const btn =el("button","primary","Continue");
-      btn.onclick=()=>{
-        if(pwd.value===PASSWORD){ STATE.authed=true; STATE.name=name.value.trim(); fetchItems(); }
-        else alert("Wrong password.");
-      };
+      const pwd=el("input"); pwd.type="password"; pwd.placeholder="Password";
+      const btn=el("button","primary","Continue");
+      btn.onclick=()=>{ if(pwd.value===PASSWORD){ STATE.authed=true; STATE.name=name.value.trim(); fetchItems(); } else alert("Wrong password."); };
       [name,pwd].forEach(i=>i.addEventListener("keydown",e=>{ if(e.key==="Enter") btn.click(); }));
       row.append(name,pwd,btn); c.appendChild(row);
       c.appendChild(el("div","hr"));
-      c.appendChild(el("p","muted small",`Today: <b>${STATE.period==='MT'?'Mon–Thu':'Fri–Sun'}</b> (use ?period=MT/FS to override)`));
+      c.appendChild(el("p","muted small",`Today → <b>${STATE.period==='MT'?'Mon–Thu':'Fri–Sun'}</b> (override with ?period=MT/FS)`));
       w.appendChild(c); return w;
     }
 
-    // ====== MAIN VIEW ======
+    // ===== MAIN =====
     function ViewMain(){
       const w=el("div","wrap");
 
+      // Header
       const head=el("div","card section");
       head.innerHTML=`<header><h1>Par Order – ${STATE.period==='MT'?'Mon–Thu':'Fri–Sun'}</h1></header>
-        <p class="muted small">Type current stock; only entered rows are calculated.</p>`;
+        <p class="muted small">Type current stock; only rows you entered and need &gt; 0 will appear in Preview.</p>`;
       w.appendChild(head);
 
-      // table
-      w.appendChild(buildTableCard());
-      // footer (preview + buttons)
+      // Search + Category Tabs
+      const filtersCard=el("div","card section");
+      const search = el("input","searchbar"); search.type="search"; search.placeholder="Search items…";
+      search.value = STATE.filter.q; search.oninput=()=>{ STATE.filter.q = search.value.trim().toLowerCase(); render(); };
+      const tabs=el("div","tabrow");
+      const cats = ["ALL", ...Array.from(new Set(STATE.items.map(i=>i.category))).sort()];
+      cats.forEach(c=>{
+        const b=el("button","ghost"+(STATE.filter.cat===c?" active":""), c.replaceAll("_"," "));
+        b.onclick=()=>{ STATE.filter.cat=c; render(); };
+        tabs.appendChild(b);
+      });
+      filtersCard.appendChild(search);
+      filtersCard.appendChild(tabs);
+      w.appendChild(filtersCard);
+
+      // Grouped Tables
+      w.appendChild(buildGroupedTables());
+
+      // Footer (Preview + Buttons)
       w.appendChild(buildFooterCard());
 
       return w;
     }
 
-    function calcRows(){
-      const period = STATE.period;
-      return STATE.items.map(it=>{
-        const par = period==='MT' ? Number(it.par_mt||0) : Number(it.par_fs||0);
-        const hasInput = Object.prototype.hasOwnProperty.call(STATE.stocks, it.id); // 只有“输入过”的才计算
+    // ===== CALC / BUILD =====
+    function calcPar(it){
+      return STATE.period==='MT' ? Number(it.par_mt||0) : Number(it.par_fs||0);
+    }
+    function calcRowsFor(items){
+      return items.map(it=>{
+        const par = calcPar(it);
+        const hasInput = Object.prototype.hasOwnProperty.call(STATE.stocks, it.id);
         const stock = hasInput ? Number(STATE.stocks[it.id]||0) : null;
         const need  = stock==null ? 0 : Math.max(par - stock, 0);
         return { ...it, par, stock, need, hasInput };
       });
     }
     function buildOrderList(){
-      // 只收集“输入过 stock 且 need>0”的行
-      return calcRows().filter(r=>r.hasInput && r.need>0)
+      // 只汇总“输入过且 need>0”的行（跨分类）
+      return calcRowsFor(STATE.items).filter(r=>r.hasInput && r.need>0)
         .map(r=>({ item:r.item, unit:r.unit||"", qty:r.need, notes:r.notes||"" }));
     }
     function buildSummaryText(){
       const list = buildOrderList();
-      if(!list.length) return ""; // 初始为空
+      if(!list.length) return "";
       return list.map(t=>`- ${t.item} — ${t.qty} ${t.unit}`).join("\n");
     }
 
-    function buildTableCard(){
-      const card=el("div","card section");
-      const table=el("table");
-      table.innerHTML=`<thead><tr>
-        <th>Item</th><th>Unit</th><th>Par</th><th>Current Stock</th><th>This Order</th><th>Notes</th>
-      </tr></thead>`;
-      const tbody=el("tbody");
+    function groupByCategory(items){
+      const map = new Map();
+      items.forEach(it=>{
+        const k = it.category || "UNCATEGORIZED";
+        if(!map.has(k)) map.set(k, []);
+        map.get(k).push(it);
+      });
+      map.forEach(arr=>arr.sort((a,b)=>(a.sort_index||0)-(b.sort_index||0) || a.item.localeCompare(b.item)));
+      return map;
+    }
 
-      calcRows().forEach(r=>{
-        const tr=el("tr");
-        const input=el("input"); input.type="number"; input.step="0.01"; input.min="0";
-        input.value = r.hasInput ? (r.stock ?? "") : ""; // 未输入过→空
-        const pill = el("span","pill " + (r.need>0?"ok":"zero"), r.need>0 ? String(r.need) : "0");
+    function buildGroupedTables(){
+      const card = el("div","card section");
 
-        input.oninput=()=>{
-          const raw = input.value;
-          if(raw === "" || raw === null){ // 清空→当作“未输入”
-            delete STATE.stocks[r.id];
-          }else{
-            STATE.stocks[r.id] = Number(raw||0);
-          }
-          // 更新该行 pill
-          const { need } = calcRows().find(x=>x.id===r.id);
-          pill.textContent = String(need);
-          pill.className   = "pill " + (need>0 ? "ok" : "zero");
-          // 同步预览与按钮
-          syncPreviewAndButtons();
-        };
-
-        tr.appendChild(el("td",null,escapeHtml(r.item)));
-        tr.appendChild(el("td",null,escapeHtml(r.unit||"")));
-        tr.appendChild(el("td",null,String(r.par)));
-        const tdS=el("td"); tdS.appendChild(input); tr.appendChild(tdS);
-        const tdN=el("td"); tdN.appendChild(pill); tr.appendChild(tdN);
-        tr.appendChild(el("td",null,escapeHtml(r.notes||"")));
-        tbody.appendChild(tr);
+      // 过滤
+      const q = (STATE.filter.q||"").toLowerCase();
+      const cat = STATE.filter.cat || "ALL";
+      const filtered = STATE.items.filter(it=>{
+        const okQ = !q || `${it.item} ${it.unit||""} ${it.notes||""}`.toLowerCase().includes(q);
+        const okC = (cat==="ALL") || it.category===cat;
+        return okQ && okC;
       });
 
-      table.appendChild(tbody);
-      card.appendChild(table);
+      const groups = groupByCategory(filtered);
+      if(groups.size===0){ card.appendChild(el("p","muted","No items matched.")); return card; }
+
+      groups.forEach((arr, catName)=>{
+        // 分类头
+        const head = el("div","section-head");
+        head.appendChild(el("div",null,catName.replaceAll("_"," ")));
+        const toggle = el("button","ghost","Collapse");
+        const section = el("div");
+        toggle.onclick=()=>{
+          const hidden = section.classList.toggle("hidden");
+          toggle.textContent = hidden ? "Expand" : "Collapse";
+        };
+        head.appendChild(toggle);
+        card.appendChild(head);
+
+        // 表格
+        const table = el("table");
+        table.innerHTML = `<thead><tr>
+          <th>Item</th><th>Unit</th><th>Par</th><th>Current Stock</th><th>This Order</th><th>Notes</th>
+        </tr></thead>`;
+        const tbody = el("tbody");
+
+        calcRowsFor(arr).forEach(r=>{
+          const tr = el("tr");
+          const input = el("input"); input.type="number"; input.step="0.01"; input.min="0";
+          input.value = r.hasInput ? (r.stock ?? "") : "";
+          const pill = el("span","pill " + (r.need>0?"ok":"zero"), r.need>0 ? String(r.need) : "0");
+
+          input.oninput=()=>{
+            const raw = input.value;
+            if(raw===""||raw===null){ delete STATE.stocks[r.id]; }
+            else { STATE.stocks[r.id] = Number(raw||0); }
+            const par = r.par;
+            const current = Object.prototype.hasOwnProperty.call(STATE.stocks, r.id)
+              ? Math.max(par - Number(STATE.stocks[r.id]||0), 0) : 0;
+            pill.textContent = String(current);
+            pill.className = "pill " + (current>0 ? "ok" : "zero");
+            syncPreviewAndButtons();
+          };
+
+          tr.appendChild(el("td",null,escapeHtml(r.item)));
+          tr.appendChild(el("td",null,escapeHtml(r.unit||"")));
+          tr.appendChild(el("td",null,String(r.par)));
+          const tdS=el("td"); tdS.appendChild(input); tr.appendChild(tdS);
+          const tdN=el("td"); tdN.appendChild(pill); tr.appendChild(tdN);
+          tr.appendChild(el("td",null,escapeHtml(r.notes||"")));
+          tbody.appendChild(tr);
+        });
+
+        table.appendChild(tbody);
+        section.appendChild(table);
+        card.appendChild(section);
+      });
+
       return card;
     }
 
@@ -196,13 +254,11 @@ td input{ width:100% }
       btnSave = el("button","primary","Save Log to Supabase");
 
       btnCopy.onclick=()=>{
-        const text = buildSummaryText();
-        if(!text) return;
+        const text = buildSummaryText(); if(!text) return;
         navigator.clipboard.writeText(text); alert("Copied.");
       };
       btnCSV.onclick=()=>{
-        const list = buildOrderList();
-        if(!list.length) return;
+        const list = buildOrderList(); if(!list.length) return;
         const lines=[["Item","Unit","Qty","Notes"].join(",")];
         list.forEach(it=>lines.push([it.item,it.unit||"",String(it.qty),(it.notes||"").replaceAll(",",";")].join(",")));
         const blob=new Blob([lines.join("\n")],{type:"text/csv;charset=utf-8"});
@@ -245,13 +301,18 @@ td input{ width:100% }
       if(btnCSV)  btnCSV.disabled  = !has;
     }
 
-    // ====== DATA LOAD ======
+    // ===== DATA LOAD =====
     async function fetchItems(){
       STATE.load_error = "";
       render();
       if(!db){ STATE.load_error="Supabase init failed."; render(); return; }
       try{
-        const { data, error } = await db.from("items").select("*").order("item");
+        const { data, error } = await db
+          .from("items")
+          .select("id,item,unit,notes,par_mt,par_fs,category,sort_index")
+          .order("category",{ascending:true})
+          .order("sort_index",{ascending:true})
+          .order("item",{ascending:true});
         if(error) throw error;
         STATE.items = data || [];
         if(!STATE.items.length) STATE.load_error = "No items in `items` table.";
