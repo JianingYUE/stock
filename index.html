@@ -6,7 +6,7 @@
   <title>Par Order — Auto Only</title>
   <!-- Supabase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- 样式（与你之前的风格一致） -->
+  <!-- 样式 -->
   <style>
     :root{ --bg:#0b1020; --card:#111731; --ink:#f6f7fb; --muted:#9aa3b2; --accent:#5ed9a6; --line:#202a52; }
     *{ box-sizing:border-box }
@@ -41,20 +41,20 @@
   <div id="app"></div>
 
   <script>
-    // ===== 配置（已填你的 Supabase URL & anon key）=====
+    // ===== 配置（按你之前的项目填好）=====
     const APP_CONFIG = {
       SUPABASE_URL: "https://ehfhcgzsirgebrfofaph.supabase.co",
       SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoZmhjZ3pzaXJnZWJyZm9mYXBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1OTg5MjMsImV4cCI6MjA3MDE3NDkyM30.OOnzt-mCdQNYU3b17O3vtDTrPA2AmJPij8OhfnvMAN0",
-      PASSWORD: "000" // 记得上线后改掉
+      PASSWORD: "000" // 上线后记得改
     };
     const db = supabase.createClient(APP_CONFIG.SUPABASE_URL, APP_CONFIG.SUPABASE_ANON_KEY);
 
-    // ===== 小工具 =====
+    // ===== 工具 =====
     const $ = (id)=>document.getElementById(id);
     const el = (tag, cls, html)=>{ const n=document.createElement(tag); if(cls) n.className=cls; if(html!=null) n.innerHTML=html; return n; };
     const qs = new URLSearchParams(location.search);
     function todayPeriodKey(){
-      const ov = qs.get("period"); // 可用 ?period=MT / ?period=FS 临时覆盖
+      const ov = qs.get("period"); // 可用 ?period=MT / ?period=FS 覆盖
       if (ov === "MT" || ov === "FS") return ov;
       const d = new Date().getDay(); // 0=Sun, 3=Wed
       if (d === 0) return "FS";      // 周日 → Fri–Sun
@@ -75,7 +75,7 @@
       root.appendChild(ViewMain());
     }
 
-    // ===== 视图：登录 =====
+    // ===== 登录 =====
     function ViewLogin(){
       const wrap = el("div","wrap");
       const card = el("div","card section");
@@ -95,40 +95,71 @@
       wrap.appendChild(card); return wrap;
     }
 
-    // ===== 视图：加载中 =====
+    // ===== 加载中 =====
     function ViewLoading(){
       const w=el("div","wrap"); const c=el("div","card section");
       c.appendChild(el("p",null,"Loading items from Supabase…")); w.appendChild(c); return w;
     }
 
-    // ===== 视图：主页面（无周期按钮，输入实时更新）=====
+    // ===== 主页面（实时更新 Preview 版本）=====
     function ViewMain(){
       const period = STATE.period;
 
-      // 计算行
-      const rows = STATE.items.map(it=>{
-        const par   = period==='MT' ? Number(it.par_mt||0) : Number(it.par_fs||0);
-        const stock = Number(STATE.stocks[it.id]||0);
-        const need  = Math.max(par - stock, 0);
-        return { ...it, par, stock, need };
-      });
+      // —— 基于当前输入现算 —— 
+      const calcRows = () =>
+        STATE.items.map(it => {
+          const par   = period === "MT" ? Number(it.par_mt || 0) : Number(it.par_fs || 0);
+          const stock = Number(STATE.stocks[it.id] || 0);
+          const need  = Math.max(par - stock, 0);
+          return { ...it, par, stock, need };
+        });
 
-      const orderList = rows.filter(r=>r.need>0).map(r=>({ item:r.item, unit:r.unit||"", qty:r.need, notes:r.notes||"" }));
-      const summaryText = `Order for ${period==='MT'?'Mon–Thu':'Fri–Sun'} (auto)\n` +
-        (orderList.map(t=>`- ${t.item} — ${t.qty} ${t.unit}`).join("\n") || "(No items)");
+      const buildOrderList = () =>
+        calcRows()
+          .filter(r => r.need > 0)
+          .map(r => ({ item: r.item, unit: r.unit || "", qty: r.need, notes: r.notes || "" }));
 
+      const buildSummaryText = () => {
+        const list = buildOrderList();
+        const head = `Order for ${period === "MT" ? "Mon–Thu" : "Fri–Sun"} (auto)\n`;
+        const body = list.length
+          ? list.map(t => `- ${t.item} — ${t.qty} ${t.unit}`).join("\n")
+          : "(No items)";
+        return head + body;
+      };
+
+      const rows = calcRows();
       const wrap = el("div","wrap");
 
-      // 顶部（只有复制、导出）
+      // 顶部（按钮点击时现算）
       const head = el("div","card section");
       head.innerHTML = `<header><h1>Par Order – ${period==='MT'?'Mon–Thu':'Fri–Sun'}</h1></header>
         <p class="muted small">已自动按日期选择周期（需要临时改可用 ?period=MT/FS 覆盖）。</p>`;
       const controls = el("div","row");
-      const btnCopy = el("button","ghost","Copy Summary"); btnCopy.onclick=()=>{ navigator.clipboard.writeText(summaryText); alert("Copied."); };
-      const btnCSV  = el("button","ghost","Export CSV");   btnCSV.onclick = ()=> exportCSV(orderList, period);
-      controls.append(btnCopy, btnCSV); head.appendChild(controls); wrap.appendChild(head);
 
-      // 表格（输入时即时更新右侧 This Order pill）
+      const btnCopy = el("button","ghost","Copy Summary");
+      btnCopy.onclick = () => {
+        navigator.clipboard.writeText(buildSummaryText());
+        alert("Copied.");
+      };
+
+      const btnCSV  = el("button","ghost","Export CSV");
+      btnCSV.onclick = () => {
+        const list = buildOrderList();
+        const lines = [["Item","Unit","Qty","Notes"].join(",")];
+        list.forEach(it => lines.push([it.item, it.unit||"", String(it.qty), (it.notes||"").replaceAll(",",";")].join(",")));
+        const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8"});
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement("a");
+        a.href=url; a.download=`order-${period==='MT'?'Mon-Thu':'Fri-Sun'}.csv`; a.click();
+        URL.revokeObjectURL(url);
+      };
+
+      controls.append(btnCopy, btnCSV);
+      head.appendChild(controls);
+      wrap.appendChild(head);
+
+      // 表格（输入时更新 pill + Preview）
       const tableCard = el("div","card section");
       const table = el("table");
       table.innerHTML = `<thead><tr>
@@ -148,6 +179,8 @@
           const need = Math.max(r.par - val, 0);
           pill.textContent = String(need);
           pill.className = "pill " + (need>0 ? "ok" : "zero");
+          // 实时刷新 Preview
+          previewPre.textContent = buildSummaryText();
         };
 
         tr.appendChild(el("td",null,escapeHtml(r.item)));
@@ -159,24 +192,18 @@
         tbody.appendChild(tr);
       });
 
-      table.appendChild(tbody); tableCard.appendChild(table); wrap.appendChild(tableCard);
+      table.appendChild(tbody);
+      tableCard.appendChild(table);
+      wrap.appendChild(tableCard);
 
-      // 底部：保存日志（可选）
+      // 底部：保存也用“现算”的数据
       const foot = el("div","card section");
       const row = el("div","row");
       const btnSubmit = el("button","primary", STATE.submitting ? "Submitting…" : "Save Log to Supabase");
       btnSubmit.disabled = STATE.submitting;
       btnSubmit.onclick = async ()=>{
-        // 重新生成一次最新 orderList（以当前输入为准）
-        const freshList = STATE.items.map(it=>{
-          const par   = period==='MT' ? Number(it.par_mt||0) : Number(it.par_fs||0);
-          const stock = Number(STATE.stocks[it.id]||0);
-          const need  = Math.max(par - stock, 0);
-          return { item:it.item, unit:it.unit||"", qty:need, notes:it.notes||"" };
-        }).filter(x=>x.qty>0);
-
+        const freshList = buildOrderList();
         if (freshList.length===0 && !confirm("No items to order. Save an empty log?")) return;
-
         STATE.submitting = true; render();
         try{
           const payload = { period, operator: STATE.name || "anon", items: freshList, stocks: STATE.stocks, generated_at: new Date().toISOString() };
@@ -189,14 +216,20 @@
       row.appendChild(btnSubmit);
       foot.appendChild(row);
       foot.appendChild(el("div","hr"));
-      foot.appendChild(el("div","list small", `<div><span class="k">Preview:</span></div>
-        <pre class="v" style="white-space:pre-wrap;margin:6px 0 0">${escapeHtml(summaryText)}</pre>`));
-      wrap.appendChild(foot);
 
+      // Preview：给 <pre> 引用，输入时更新它
+      const previewWrap = el("div","list small", `<div><span class="k">Preview:</span></div>`);
+      const previewPre = el("pre","v", buildSummaryText());
+      previewPre.style.whiteSpace = "pre-wrap";
+      previewPre.style.margin = "6px 0 0";
+      previewWrap.appendChild(previewPre);
+      foot.appendChild(previewWrap);
+
+      wrap.appendChild(foot);
       return wrap;
     }
 
-    // ===== 导出 CSV =====
+    // ===== 导出 CSV（备用，按钮里也有自带现算版）=====
     function exportCSV(list, period){
       const lines = [["Item","Unit","Qty","Notes"].join(",")];
       list.forEach(it=>lines.push([it.item, it.unit||"", String(it.qty), (it.notes||"").replaceAll(",",";")].join(",")));
