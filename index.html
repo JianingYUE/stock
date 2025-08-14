@@ -39,248 +39,231 @@ td input{ width:100% }
 <body>
   <div id="app"></div>
 
-  <!-- Supabase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
   (function(){
-    // ========= CONFIG（已替换为你的项目）=========
+    // ====== YOUR CONFIG (filled) ======
     const SUPABASE_URL = "https://ehfhcgzsirgebrfofaph.supabase.co";
     const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoZmhjZ3pzaXJnZWJyZm9mYXBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1OTg5MjMsImV4cCI6MjA3MDE3NDkyM30.OOnzt-mCdQNYU3b17O3vtDTrPA2AmJPij8OhfnvMAN0";
+    const PASSWORD = "000"; // <- 修改为你的内部密码
 
-    // ========= Safe init =========
     let db = null;
-    try {
-      if (window.supabase) db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-    } catch (e) {
-      console.warn("Supabase init failed:", e);
-    }
+    try{ db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY); }catch(e){ console.warn(e); }
 
-    // ========= State =========
+    // ====== STATE ======
     const STATE = {
-      period: (()=>{
-        const d = new Date().getDay(); // 0 Sun, 3 Wed
-        if (d === 0) return "FS";
-        if (d === 3) return "MT";
-        if (d >= 1 && d <= 4) return "MT";
+      authed:false,
+      name:"",
+      period:(()=>{
+        const qs = new URLSearchParams(location.search);
+        const ov = qs.get("period");
+        if (ov==="MT"||ov==="FS") return ov;
+        const d=new Date().getDay(); // 0 Sun 3 Wed
+        if (d===0) return "FS";
+        if (d===3) return "MT";
+        if (d>=1&&d<=4) return "MT";
         return "FS";
       })(),
-      items: [],        // 将从 Supabase 的 items 表加载
-      stocks: {},       // { [id]: number }
-      name: "anon",
-      submitting: false,
-      load_error: ""    // 加载错误消息
+      items:[],
+      stocks:{},         // 只在用户输入后记录该行：未输入即不计算
+      submitting:false,
+      load_error:""
     };
 
-    // ========= Utils =========
-    const $ = (id)=>document.getElementById(id);
+    // ====== UTILS ======
+    const $ = id=>document.getElementById(id);
     const el=(tag,cls,html)=>{const n=document.createElement(tag); if(cls)n.className=cls; if(html!=null)n.innerHTML=html; return n;};
-    const escapeHtml = s => (s||"").replace(/[&<>]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c]));
+    const escapeHtml=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 
-    // ========= Render =========
+    // ====== RENDER ROOT ======
     function render(){
-      const root = $("app");
-      root.innerHTML = "";
-
-      // Header + tips
-      const wrap = el("div","wrap");
-      const head = el("div","card section");
-      head.innerHTML = `<header><h1>Par Order – ${STATE.period==='MT'?'Mon–Thu':'Fri–Sun'}</h1></header>
-        <p class="muted small">Auto-selected by weekday（可用 ?period=MT/FS 覆盖临时计算）。</p>`;
-      wrap.appendChild(head);
-
-      // Error
-      if (STATE.load_error) {
-        const err = el("div","card section");
-        err.appendChild(el("div","error", escapeHtml(STATE.load_error)));
-        wrap.appendChild(err);
-        root.appendChild(wrap);
-        return;
-      }
-
-      // Loading
-      if (!STATE.items || STATE.items.length === 0) {
-        const loading = el("div","card section");
-        loading.appendChild(el("p",null,"Loading items from Supabase…"));
-        wrap.appendChild(loading);
-        root.appendChild(wrap);
-        return;
-      }
-
-      // Build table and footer
-      wrap.appendChild(buildTableCard());
-      wrap.appendChild(buildFooterCard());
-      root.appendChild(wrap);
+      const root = $("app"); root.innerHTML="";
+      if(!STATE.authed){ root.appendChild(ViewLogin()); return; }
+      if(STATE.load_error){ const w=el("div","wrap"); const c=el("div","card section"); c.appendChild(el("div","error",escapeHtml(STATE.load_error))); w.appendChild(c); root.appendChild(w); return; }
+      if(!STATE.items.length){ const w=el("div","wrap"); const c=el("div","card section"); c.appendChild(el("p",null,"Loading items from Supabase…")); w.appendChild(c); root.appendChild(w); return; }
+      root.appendChild(ViewMain());
     }
 
-    // ========= Build helpers =========
+    // ====== LOGIN VIEW ======
+    function ViewLogin(){
+      const w=el("div","wrap");
+      const c=el("div","card section");
+      c.appendChild(el("h1",null,"Par Order – Login"));
+      c.appendChild(el("p","muted","Enter password to proceed. The period is auto-chosen by weekday."));
+      const row=el("div","row");
+      const name=el("input"); name.type="text"; name.placeholder="Your name/initials (optional)";
+      const pwd =el("input"); pwd.type="password"; pwd.placeholder="Password";
+      const btn =el("button","primary","Continue");
+      btn.onclick=()=>{
+        if(pwd.value===PASSWORD){ STATE.authed=true; STATE.name=name.value.trim(); fetchItems(); }
+        else alert("Wrong password.");
+      };
+      [name,pwd].forEach(i=>i.addEventListener("keydown",e=>{ if(e.key==="Enter") btn.click(); }));
+      row.append(name,pwd,btn); c.appendChild(row);
+      c.appendChild(el("div","hr"));
+      c.appendChild(el("p","muted small",`Today: <b>${STATE.period==='MT'?'Mon–Thu':'Fri–Sun'}</b> (use ?period=MT/FS to override)`));
+      w.appendChild(c); return w;
+    }
+
+    // ====== MAIN VIEW ======
+    function ViewMain(){
+      const w=el("div","wrap");
+
+      const head=el("div","card section");
+      head.innerHTML=`<header><h1>Par Order – ${STATE.period==='MT'?'Mon–Thu':'Fri–Sun'}</h1></header>
+        <p class="muted small">Type current stock; only entered rows are calculated.</p>`;
+      w.appendChild(head);
+
+      // table
+      w.appendChild(buildTableCard());
+      // footer (preview + buttons)
+      w.appendChild(buildFooterCard());
+
+      return w;
+    }
+
     function calcRows(){
       const period = STATE.period;
       return STATE.items.map(it=>{
-        const par   = period === "MT" ? Number(it.par_mt||0) : Number(it.par_fs||0);
-        const stock = Number(STATE.stocks[it.id]||0);
-        const need  = Math.max(par - stock, 0);
-        return { ...it, par, stock, need };
+        const par = period==='MT' ? Number(it.par_mt||0) : Number(it.par_fs||0);
+        const hasInput = Object.prototype.hasOwnProperty.call(STATE.stocks, it.id); // 只有“输入过”的才计算
+        const stock = hasInput ? Number(STATE.stocks[it.id]||0) : null;
+        const need  = stock==null ? 0 : Math.max(par - stock, 0);
+        return { ...it, par, stock, need, hasInput };
       });
     }
     function buildOrderList(){
-      return calcRows()
-        .filter(r=>r.need>0)
+      // 只收集“输入过 stock 且 need>0”的行
+      return calcRows().filter(r=>r.hasInput && r.need>0)
         .map(r=>({ item:r.item, unit:r.unit||"", qty:r.need, notes:r.notes||"" }));
     }
     function buildSummaryText(){
       const list = buildOrderList();
-      if (!list.length) return "";               // 初始为空
+      if(!list.length) return ""; // 初始为空
       return list.map(t=>`- ${t.item} — ${t.qty} ${t.unit}`).join("\n");
     }
 
     function buildTableCard(){
-      const tableCard = el("div","card section");
-      const table = el("table");
-      table.innerHTML = `<thead><tr>
+      const card=el("div","card section");
+      const table=el("table");
+      table.innerHTML=`<thead><tr>
         <th>Item</th><th>Unit</th><th>Par</th><th>Current Stock</th><th>This Order</th><th>Notes</th>
       </tr></thead>`;
-      const tbody = el("tbody");
+      const tbody=el("tbody");
 
-      const rows = calcRows();
-      rows.forEach(r=>{
-        const tr = el("tr");
-        const stockInput = el("input"); stockInput.type="number"; stockInput.step="0.01"; stockInput.min="0";
-        stockInput.value = STATE.stocks[r.id] ?? "";
+      calcRows().forEach(r=>{
+        const tr=el("tr");
+        const input=el("input"); input.type="number"; input.step="0.01"; input.min="0";
+        input.value = r.hasInput ? (r.stock ?? "") : ""; // 未输入过→空
         const pill = el("span","pill " + (r.need>0?"ok":"zero"), r.need>0 ? String(r.need) : "0");
 
-        stockInput.oninput = ()=>{
-          const val = Number(stockInput.value || 0);
-          STATE.stocks[r.id] = val;
-          const need = Math.max(r.par - val, 0);
+        input.oninput=()=>{
+          const raw = input.value;
+          if(raw === "" || raw === null){ // 清空→当作“未输入”
+            delete STATE.stocks[r.id];
+          }else{
+            STATE.stocks[r.id] = Number(raw||0);
+          }
+          // 更新该行 pill
+          const { need } = calcRows().find(x=>x.id===r.id);
           pill.textContent = String(need);
-          pill.className = "pill " + (need>0 ? "ok" : "zero");
-          // 即时刷新预览 & 按钮状态
+          pill.className   = "pill " + (need>0 ? "ok" : "zero");
+          // 同步预览与按钮
           syncPreviewAndButtons();
         };
 
         tr.appendChild(el("td",null,escapeHtml(r.item)));
         tr.appendChild(el("td",null,escapeHtml(r.unit||"")));
         tr.appendChild(el("td",null,String(r.par)));
-        const tdS = el("td"); tdS.appendChild(stockInput); tr.appendChild(tdS);
-        const tdNeed = el("td"); tdNeed.appendChild(pill); tr.appendChild(tdNeed);
+        const tdS=el("td"); tdS.appendChild(input); tr.appendChild(tdS);
+        const tdN=el("td"); tdN.appendChild(pill); tr.appendChild(tdN);
         tr.appendChild(el("td",null,escapeHtml(r.notes||"")));
         tbody.appendChild(tr);
       });
 
       table.appendChild(tbody);
-      tableCard.appendChild(table);
-      return tableCard;
+      card.appendChild(table);
+      return card;
     }
 
     let previewPre, btnCopy, btnCSV, btnSave;
     function buildFooterCard(){
-      const foot = el("div","card section");
-      const row = el("div","row");
+      const card=el("div","card section");
+      const row=el("div","row");
 
       btnCopy = el("button","ghost","Copy Summary");
       btnCSV  = el("button","ghost","Export CSV");
       btnSave = el("button","primary","Save Log to Supabase");
 
-      btnCopy.onclick = ()=>{
+      btnCopy.onclick=()=>{
         const text = buildSummaryText();
-        if (!text) return;
-        navigator.clipboard.writeText(text);
-        alert("Copied.");
+        if(!text) return;
+        navigator.clipboard.writeText(text); alert("Copied.");
       };
-      btnCSV.onclick = ()=>{
+      btnCSV.onclick=()=>{
         const list = buildOrderList();
-        if (!list.length) return;
-        const lines = [["Item","Unit","Qty","Notes"].join(",")];
-        list.forEach(it=>lines.push([it.item, it.unit||"", String(it.qty), (it.notes||"").replaceAll(",",";")].join(",")));
-        const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8"});
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement("a");
-        a.href=url; a.download=`order-${STATE.period==='MT'?'Mon-Thu':'Fri-Sun'}.csv`; a.click();
-        URL.revokeObjectURL(url);
+        if(!list.length) return;
+        const lines=[["Item","Unit","Qty","Notes"].join(",")];
+        list.forEach(it=>lines.push([it.item,it.unit||"",String(it.qty),(it.notes||"").replaceAll(",",";")].join(",")));
+        const blob=new Blob([lines.join("\n")],{type:"text/csv;charset=utf-8"});
+        const url=URL.createObjectURL(blob); const a=document.createElement("a");
+        a.href=url; a.download=`order-${STATE.period==='MT'?'Mon-Thu':'Fri-Sun'}.csv`; a.click(); URL.revokeObjectURL(url);
       };
-      btnSave.onclick = async ()=>{
+      btnSave.onclick=async()=>{
+        if(!db){ alert("Supabase not available."); return; }
         const list = buildOrderList();
-        if (!db) { alert("Supabase not available."); return; }
-        if (!list.length && !confirm("No items to order. Save an empty log?")) return;
-        btnSave.disabled = true;
+        if(!list.length && !confirm("No items to order. Save an empty log?")) return;
+        btnSave.disabled=true;
         try{
-          const payload = {
-            period: STATE.period,
-            operator: STATE.name || "anon",
-            items: list,
-            stocks: STATE.stocks,
-            generated_at: new Date().toISOString()
-          };
-          const { error } = await db.from("order_logs").insert({
-            period: STATE.period,
-            made_by: STATE.name || "anon",
-            payload
-          });
-          if (error) throw error;
-          alert("Saved to Supabase (order_logs).");
-        }catch(e){
-          console.error(e);
-          alert("Failed to save: " + (e.message||e));
-        }finally{
-          btnSave.disabled = false;
-        }
+          const payload={ period:STATE.period, operator:STATE.name||"anon", items:list, stocks:STATE.stocks, generated_at:new Date().toISOString() };
+          const { error } = await db.from("order_logs").insert({ period:STATE.period, made_by:STATE.name||"anon", payload });
+          if(error) throw error; alert("Saved to Supabase (order_logs).");
+        }catch(e){ alert("Failed to save: "+(e.message||e)); }
+        finally{ btnSave.disabled=false; }
       };
 
-      row.appendChild(btnCopy);
-      row.appendChild(btnCSV);
-      row.appendChild(btnSave);
-      foot.appendChild(row);
-      foot.appendChild(el("div","hr"));
+      row.appendChild(btnCopy); row.appendChild(btnCSV); row.appendChild(btnSave);
+      card.appendChild(row);
+      card.appendChild(el("div","hr"));
 
-      const previewWrap = el("div","list small", `<div><span class="k">Preview:</span></div>`);
-      previewPre = el("pre","v","");
-      previewPre.style.whiteSpace = "pre-wrap";
-      previewPre.style.margin = "6px 0 0";
+      const previewWrap=el("div","list small",`<div><span class="k">Preview:</span></div>`);
+      previewPre=el("pre","v",""); // 初始空白
+      previewPre.style.whiteSpace="pre-wrap"; previewPre.style.margin="6px 0 0";
       previewWrap.appendChild(previewPre);
-      foot.appendChild(previewWrap);
+      card.appendChild(previewWrap);
 
-      // 初始禁用 & 空预览
+      // 初始状态：禁用复制/导出
       syncPreviewAndButtons();
-
-      return foot;
+      return card;
     }
 
     function syncPreviewAndButtons(){
       const text = buildSummaryText();
-      if (previewPre) previewPre.textContent = text; // 空则不显示任何文字
-      const hasItems = !!text;
-      if (btnCopy) btnCopy.disabled = !hasItems;
-      if (btnCSV)  btnCSV.disabled  = !hasItems;
+      if(previewPre) previewPre.textContent = text;
+      const has = !!text;
+      if(btnCopy) btnCopy.disabled = !has;
+      if(btnCSV)  btnCSV.disabled  = !has;
     }
 
-    // ========= Data load =========
+    // ====== DATA LOAD ======
     async function fetchItems(){
-      // 允许用 URL 覆盖周期 ?period=MT/FS
-      const qs = new URLSearchParams(location.search);
-      const ov = qs.get("period");
-      if (ov === "MT" || ov === "FS") STATE.period = ov;
-
-      if (!db) {
-        STATE.load_error = "Supabase SDK not loaded or client init failed.";
-        render();
-        return;
-      }
+      STATE.load_error = "";
+      render();
+      if(!db){ STATE.load_error="Supabase init failed."; render(); return; }
       try{
         const { data, error } = await db.from("items").select("*").order("item");
-        if (error) throw error;
+        if(error) throw error;
         STATE.items = data || [];
-        if (!STATE.items.length) {
-          STATE.load_error = "No items found in table `items`. Please insert items first.";
-        }
+        if(!STATE.items.length) STATE.load_error = "No items in `items` table.";
       }catch(e){
-        STATE.load_error = "Failed to load items: " + (e.message || e);
+        STATE.load_error = "Failed to load items: " + (e.message||e);
       }finally{
         render();
       }
     }
 
-    // start
-    fetchItems();
+    // start at login
+    render();
   })();
   </script>
 </body>
