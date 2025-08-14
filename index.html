@@ -1,256 +1,187 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Par Order — Auto Only</title>
-  <!-- Supabase SDK -->
-  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <!-- 样式 -->
-  <style>
-    :root{ --bg:#0b1020; --card:#111731; --ink:#f6f7fb; --muted:#9aa3b2; --accent:#5ed9a6; --line:#202a52; }
-    *{ box-sizing:border-box }
-    body{ margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; color:var(--ink);
-      background: radial-gradient(1200px 600px at 20% -10%, #1b2350 0%, #0b1020 60%); }
-    .wrap{ max-width:1100px; margin:32px auto; padding:0 16px; }
-    .card{ background:linear-gradient(180deg,#111731,#0f1430); border:1px solid #1f2750; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
-    .section{ padding:16px }
-    header{ display:flex; gap:12px; justify-content:space-between; align-items:center; margin-bottom:16px; }
-    h1{ font-size:20px; margin:0; letter-spacing:.3px }
-    .muted{ color:#9aa3b2; }
-    .row{ display:flex; gap:12px; align-items:center; flex-wrap:wrap }
-    input, button{ color:var(--ink); background:#0e1430; border:1px solid #28315f; border-radius:12px; padding:10px 12px; outline:none }
-    input::placeholder{ color:#7682a8 }
-    button{ cursor:pointer }
-    button.primary{ background:linear-gradient(180deg,#18b76a,#129f5a); border-color:#2abd85 }
-    button.ghost{ background:#0e1430 }
-    table{ width:100%; border-collapse:collapse }
-    th, td{ padding:10px; border-bottom:1px solid #232a54; }
-    th{ text-align:left; color:#b9c1d7; font-weight:600; font-size:13px }
-    td input{ width:100% }
-    .pill{ display:inline-block; padding:6px 10px; border-radius:999px; font-weight:600 }
-    .pill.ok{ background:#0f2d1f; color:#68f1b8; border:1px solid #214e3a }
-    .pill.zero{ background:#141a36; color:#8ca0ff; border:1px solid #273178 }
-    .list{ padding:12px; background:#0c1332; border:1px dashed #293267; border-radius:12px; }
-    .k{ color:#98a1c4 } .v{ color:#e4e8ff }
-    .hr{ height:1px; background:#232a54; margin:12px 0 }
-    .small{ font-size:12px }
-  </style>
-</head>
-<body>
-  <div id="app"></div>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Par Order Tracker</title>
+<style>
+:root{ --bg:#0b1020; --card:#111731; --ink:#f6f7fb; --muted:#9aa3b2; --accent:#5ed9a6; --line:#202a52; }
+*{ box-sizing:border-box }
+body{ margin:0; font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial; color:var(--ink);
+  background: radial-gradient(1200px 600px at 20% -10%, #1b2350 0%, #0b1020 60%); }
+.wrap{ max-width:1100px; margin:32px auto; padding:0 16px; }
+.card{ background:linear-gradient(180deg,#111731,#0f1430); border:1px solid #1f2750; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.25); }
+.section{ padding:16px }
+header{ display:flex; gap:12px; justify-content:space-between; align-items:center; margin-bottom:16px; }
+h1{ font-size:20px; margin:0; letter-spacing:.3px }
+.muted{ color:var(--muted); }
+.row{ display:flex; gap:12px; align-items:center; flex-wrap:wrap }
+input, button{ color:var(--ink); background:#0e1430; border:1px solid #28315f; border-radius:12px; padding:10px 12px; outline:none }
+input::placeholder{ color:#7682a8 }
+button{ cursor:pointer }
+button.primary{ background:linear-gradient(180deg,#18b76a,#129f5a); border-color:#2abd85 }
+button.ghost{ background:#0e1430 }
+button:disabled{ opacity:0.4; cursor:not-allowed }
+table{ width:100%; border-collapse:collapse }
+th, td{ padding:10px; border-bottom:1px solid #232a54; }
+th{ text-align:left; color:#b9c1d7; font-weight:600; font-size:13px }
+td input{ width:100% }
+.pill{ display:inline-block; padding:6px 10px; border-radius:999px; font-weight:600 }
+.pill.ok{ background:#0f2d1f; color:#68f1b8; border:1px solid #214e3a }
+.pill.zero{ background:#141a36; color:#8ca0ff; border:1px solid #273178 }
+.footer{ display:flex; justify-content:space-between; align-items:center; gap:12px; margin-top:12px }
+.list{ padding:12px; background:#0c1332; border:1px dashed #293267; border-radius:12px; }
+.k{ color:#98a1c4 } .v{ color:#e4e8ff }
+.hr{ height:1px; background:#232a54; margin:12px 0 }
+.small{ font-size:12px }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = "你的Supabase URL";
+const SUPABASE_ANON_KEY = "你的Anon Key";
+const db = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-  <script>
-    // ===== 配置（按你之前的项目填好）=====
-    const APP_CONFIG = {
-      SUPABASE_URL: "https://ehfhcgzsirgebrfofaph.supabase.co",
-      SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoZmhjZ3pzaXJnZWJyZm9mYXBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1OTg5MjMsImV4cCI6MjA3MDE3NDkyM30.OOnzt-mCdQNYU3b17O3vtDTrPA2AmJPij8OhfnvMAN0",
-      PASSWORD: "000" // 上线后记得改
+const STATE = {
+  period: new Date().getDay() >= 5 ? "FS" : "MT", // Fri-Sun / Mon-Thu
+  items: [
+    { id:1, item:"Lemon Juice", unit:"bottle", par_mt:2, par_fs:3, notes:"" },
+    { id:2, item:"Lime Juice", unit:"bottle", par_mt:2, par_fs:3, notes:"" },
+    { id:3, item:"Butter Beer", unit:"case", par_mt:1, par_fs:2, notes:"" }
+  ],
+  stocks:{},
+  name:"anon",
+  submitting:false
+};
+
+function el(tag, cls, text){
+  const e = document.createElement(tag);
+  if(cls) e.className = cls;
+  if(text!==undefined) e.innerHTML = text;
+  return e;
+}
+function escapeHtml(str){ return String(str).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c])); }
+
+function render(){
+  document.body.innerHTML = "";
+  document.body.appendChild(ViewMain());
+}
+
+function ViewMain(){
+  const period = STATE.period;
+  const calcRows = () =>
+    STATE.items.map(it => {
+      const par   = period === "MT" ? Number(it.par_mt || 0) : Number(it.par_fs || 0);
+      const stock = Number(STATE.stocks[it.id] || 0);
+      const need  = Math.max(par - stock, 0);
+      return { ...it, par, stock, need };
+    });
+  const buildOrderList = () =>
+    calcRows().filter(r => r.need > 0).map(r => ({ item:r.item, unit:r.unit||"", qty:r.need, notes:r.notes||"" }));
+  const buildSummaryText = () => {
+    const list = buildOrderList();
+    if (!list.length) return "";
+    return list.map(t => `- ${t.item} — ${t.qty} ${t.unit}`).join("\n");
+  };
+
+  const wrap = el("div","wrap");
+
+  const head = el("div","card section");
+  head.innerHTML = `<header><h1>Par Order – ${period==='MT'?'Mon–Thu':'Fri–Sun'}</h1></header>
+  <p class="muted small">Auto-selected by weekday.</p>`;
+  const controls = el("div","row");
+  const btnCopy = el("button","ghost","Copy Summary");
+  const btnCSV  = el("button","ghost","Export CSV");
+  btnCopy.onclick = () => {
+    const text = buildSummaryText();
+    if (!text) return;
+    navigator.clipboard.writeText(text);
+    alert("Copied.");
+  };
+  btnCSV.onclick = () => {
+    const list = buildOrderList();
+    if (!list.length) return;
+    const lines = [["Item","Unit","Qty","Notes"].join(",")];
+    list.forEach(it => lines.push([it.item, it.unit||"", String(it.qty), (it.notes||"").replaceAll(",",";")].join(",")));
+    const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8"});
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href=url; a.download=`order-${period}.csv`; a.click();
+    URL.revokeObjectURL(url);
+  };
+  controls.append(btnCopy, btnCSV);
+  head.appendChild(controls);
+  wrap.appendChild(head);
+
+  const tableCard = el("div","card section");
+  const table = el("table");
+  table.innerHTML = `<thead><tr>
+    <th>Item</th><th>Unit</th><th>Par</th><th>Current Stock</th><th>This Order</th><th>Notes</th>
+  </tr></thead>`;
+  const tbody = el("tbody");
+
+  const previewWrap = el("div","list small", `<div><span class="k">Preview:</span></div>`);
+  const previewPre = el("pre","v","");
+  previewPre.style.whiteSpace = "pre-wrap";
+  previewWrap.appendChild(previewPre);
+
+  const refreshUIState = () => {
+    const text = buildSummaryText();
+    previewPre.textContent = text;
+    const hasItems = !!text;
+    btnCopy.disabled = !hasItems;
+    btnCSV.disabled  = !hasItems;
+  };
+
+  calcRows().forEach(r=>{
+    const tr = el("tr");
+    const stockInput = el("input");
+    stockInput.type="number"; stockInput.step="0.01"; stockInput.min="0";
+    stockInput.value = STATE.stocks[r.id] ?? "";
+    const pill = el("span","pill " + (r.need>0?"ok":"zero"), r.need>0 ? String(r.need) : "0");
+    stockInput.oninput = ()=>{
+      const val = Number(stockInput.value || 0);
+      STATE.stocks[r.id] = val;
+      const need = Math.max(r.par - val, 0);
+      pill.textContent = String(need);
+      pill.className = "pill " + (need>0 ? "ok" : "zero");
+      refreshUIState();
     };
-    const db = supabase.createClient(APP_CONFIG.SUPABASE_URL, APP_CONFIG.SUPABASE_ANON_KEY);
+    tr.appendChild(el("td",null,escapeHtml(r.item)));
+    tr.appendChild(el("td",null,escapeHtml(r.unit||"")));
+    tr.appendChild(el("td",null,String(r.par)));
+    const tdS = el("td"); tdS.appendChild(stockInput); tr.appendChild(tdS);
+    const tdNeed = el("td"); tdNeed.appendChild(pill); tr.appendChild(tdNeed);
+    tr.appendChild(el("td",null,escapeHtml(r.notes||"")));
+    tbody.appendChild(tr);
+  });
 
-    // ===== 工具 =====
-    const $ = (id)=>document.getElementById(id);
-    const el = (tag, cls, html)=>{ const n=document.createElement(tag); if(cls) n.className=cls; if(html!=null) n.innerHTML=html; return n; };
-    const qs = new URLSearchParams(location.search);
-    function todayPeriodKey(){
-      const ov = qs.get("period"); // 可用 ?period=MT / ?period=FS 覆盖
-      if (ov === "MT" || ov === "FS") return ov;
-      const d = new Date().getDay(); // 0=Sun, 3=Wed
-      if (d === 0) return "FS";      // 周日 → Fri–Sun
-      if (d === 3) return "MT";      // 周三 → Mon–Thu
-      if (d >= 1 && d <= 4) return "MT";
-      return "FS";
-    }
-    const escapeHtml = (s)=> (s||"").replace(/[&<>]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c]));
+  table.appendChild(tbody);
+  tableCard.appendChild(table);
+  wrap.appendChild(tableCard);
 
-    // ===== 全局状态（进入即自动模式）=====
-    let STATE = { authed:false, name:"", period:todayPeriodKey(), items:[], stocks:{}, submitting:false };
+  const foot = el("div","card section");
+  const row = el("div","row");
+  const btnSubmit = el("button","primary","Save Log to Supabase");
+  btnSubmit.onclick = async ()=>{
+    const freshList = buildOrderList();
+    if (!freshList.length && !confirm("No items to order. Save empty log?")) return;
+    try{
+      await db.from("order_logs").insert({ period, made_by: STATE.name, payload: freshList, stocks: STATE.stocks, generated_at: new Date().toISOString() });
+      alert("Saved to Supabase");
+    }catch(e){ alert("Error: " + e.message); }
+  };
+  row.appendChild(btnSubmit);
+  foot.appendChild(row);
+  foot.appendChild(el("div","hr"));
+  foot.appendChild(previewWrap);
+  wrap.appendChild(foot);
 
-    // ===== 渲染入口 =====
-    function render(){
-      const root = $("app"); root.innerHTML = "";
-      if(!STATE.authed){ root.appendChild(ViewLogin()); return; }
-      if(!STATE.items.length){ root.appendChild(ViewLoading()); fetchItems(); return; }
-      root.appendChild(ViewMain());
-    }
+  refreshUIState();
+  return wrap;
+}
 
-    // ===== 登录 =====
-    function ViewLogin(){
-      const wrap = el("div","wrap");
-      const card = el("div","card section");
-      card.appendChild(el("h1",null,"Par Order"));
-      card.appendChild(el("p","muted","请输入密码进入（自动按日期选择周期）。"));
-      const row = el("div","row");
-      const pwd = el("input"); pwd.type="password"; pwd.placeholder="Password";
-      const name= el("input"); name.type="text"; name.placeholder="Your name/initials (optional)";
-      const btn = el("button","primary","Continue");
-      btn.onclick=()=>{ if(pwd.value===APP_CONFIG.PASSWORD){ STATE.authed=true; STATE.name=name.value.trim(); render(); } else alert("Wrong password."); };
-      [pwd,name].forEach(i=>i.addEventListener("keydown",e=>{ if(e.key==="Enter") btn.click(); }));
-      setTimeout(()=>pwd.focus(),0);
-      row.append(pwd,name,btn); card.appendChild(row); card.appendChild(el("div","hr"));
-      const label = STATE.period==='MT'?'Mon–Thu':'Fri–Sun';
-      const tip = qs.get("period") ? `（已用 ?period=${qs.get("period")} 覆盖）` : "";
-      card.appendChild(el("p","muted",`当前周期：<b>${label}</b> ${tip}`));
-      wrap.appendChild(card); return wrap;
-    }
-
-    // ===== 加载中 =====
-    function ViewLoading(){
-      const w=el("div","wrap"); const c=el("div","card section");
-      c.appendChild(el("p",null,"Loading items from Supabase…")); w.appendChild(c); return w;
-    }
-
-    // ===== 主页面（实时更新 Preview 版本）=====
-    function ViewMain(){
-      const period = STATE.period;
-
-      // —— 基于当前输入现算 —— 
-      const calcRows = () =>
-        STATE.items.map(it => {
-          const par   = period === "MT" ? Number(it.par_mt || 0) : Number(it.par_fs || 0);
-          const stock = Number(STATE.stocks[it.id] || 0);
-          const need  = Math.max(par - stock, 0);
-          return { ...it, par, stock, need };
-        });
-
-      const buildOrderList = () =>
-        calcRows()
-          .filter(r => r.need > 0)
-          .map(r => ({ item: r.item, unit: r.unit || "", qty: r.need, notes: r.notes || "" }));
-
-      const buildSummaryText = () => {
-        const list = buildOrderList();
-        const head = `Order for ${period === "MT" ? "Mon–Thu" : "Fri–Sun"} (auto)\n`;
-        const body = list.length
-          ? list.map(t => `- ${t.item} — ${t.qty} ${t.unit}`).join("\n")
-          : "(No items)";
-        return head + body;
-      };
-
-      const rows = calcRows();
-      const wrap = el("div","wrap");
-
-      // 顶部（按钮点击时现算）
-      const head = el("div","card section");
-      head.innerHTML = `<header><h1>Par Order – ${period==='MT'?'Mon–Thu':'Fri–Sun'}</h1></header>
-        <p class="muted small">已自动按日期选择周期（需要临时改可用 ?period=MT/FS 覆盖）。</p>`;
-      const controls = el("div","row");
-
-      const btnCopy = el("button","ghost","Copy Summary");
-      btnCopy.onclick = () => {
-        navigator.clipboard.writeText(buildSummaryText());
-        alert("Copied.");
-      };
-
-      const btnCSV  = el("button","ghost","Export CSV");
-      btnCSV.onclick = () => {
-        const list = buildOrderList();
-        const lines = [["Item","Unit","Qty","Notes"].join(",")];
-        list.forEach(it => lines.push([it.item, it.unit||"", String(it.qty), (it.notes||"").replaceAll(",",";")].join(",")));
-        const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8"});
-        const url  = URL.createObjectURL(blob);
-        const a    = document.createElement("a");
-        a.href=url; a.download=`order-${period==='MT'?'Mon-Thu':'Fri-Sun'}.csv`; a.click();
-        URL.revokeObjectURL(url);
-      };
-
-      controls.append(btnCopy, btnCSV);
-      head.appendChild(controls);
-      wrap.appendChild(head);
-
-      // 表格（输入时更新 pill + Preview）
-      const tableCard = el("div","card section");
-      const table = el("table");
-      table.innerHTML = `<thead><tr>
-        <th>Item</th><th>Unit</th><th>Par</th><th>Current Stock</th><th>This Order</th><th>Notes</th>
-      </tr></thead>`;
-      const tbody = el("tbody");
-
-      rows.forEach(r=>{
-        const tr = el("tr");
-        const stockInput = el("input"); stockInput.type="number"; stockInput.step="0.01"; stockInput.min="0";
-        stockInput.value = STATE.stocks[r.id] ?? "";
-        const pill = el("span","pill " + (r.need>0?"ok":"zero"), r.need>0 ? String(r.need) : "0");
-
-        stockInput.oninput = ()=>{
-          const val = Number(stockInput.value || 0);
-          STATE.stocks[r.id] = val;
-          const need = Math.max(r.par - val, 0);
-          pill.textContent = String(need);
-          pill.className = "pill " + (need>0 ? "ok" : "zero");
-          // 实时刷新 Preview
-          previewPre.textContent = buildSummaryText();
-        };
-
-        tr.appendChild(el("td",null,escapeHtml(r.item)));
-        tr.appendChild(el("td",null,escapeHtml(r.unit||"")));
-        tr.appendChild(el("td",null,String(r.par)));
-        const tdS = el("td"); tdS.appendChild(stockInput); tr.appendChild(tdS);
-        const tdNeed = el("td"); tdNeed.appendChild(pill); tr.appendChild(tdNeed);
-        tr.appendChild(el("td",null,escapeHtml(r.notes||"")));
-        tbody.appendChild(tr);
-      });
-
-      table.appendChild(tbody);
-      tableCard.appendChild(table);
-      wrap.appendChild(tableCard);
-
-      // 底部：保存也用“现算”的数据
-      const foot = el("div","card section");
-      const row = el("div","row");
-      const btnSubmit = el("button","primary", STATE.submitting ? "Submitting…" : "Save Log to Supabase");
-      btnSubmit.disabled = STATE.submitting;
-      btnSubmit.onclick = async ()=>{
-        const freshList = buildOrderList();
-        if (freshList.length===0 && !confirm("No items to order. Save an empty log?")) return;
-        STATE.submitting = true; render();
-        try{
-          const payload = { period, operator: STATE.name || "anon", items: freshList, stocks: STATE.stocks, generated_at: new Date().toISOString() };
-          const { error } = await db.from("order_logs").insert({ period, made_by: STATE.name || "anon", payload });
-          if (error) throw error;
-          alert("Saved to Supabase (order_logs).");
-        }catch(e){ console.error(e); alert("Failed to save log: " + (e.message || e)); }
-        finally{ STATE.submitting=false; render(); }
-      };
-      row.appendChild(btnSubmit);
-      foot.appendChild(row);
-      foot.appendChild(el("div","hr"));
-
-      // Preview：给 <pre> 引用，输入时更新它
-      const previewWrap = el("div","list small", `<div><span class="k">Preview:</span></div>`);
-      const previewPre = el("pre","v", buildSummaryText());
-      previewPre.style.whiteSpace = "pre-wrap";
-      previewPre.style.margin = "6px 0 0";
-      previewWrap.appendChild(previewPre);
-      foot.appendChild(previewWrap);
-
-      wrap.appendChild(foot);
-      return wrap;
-    }
-
-    // ===== 导出 CSV（备用，按钮里也有自带现算版）=====
-    function exportCSV(list, period){
-      const lines = [["Item","Unit","Qty","Notes"].join(",")];
-      list.forEach(it=>lines.push([it.item, it.unit||"", String(it.qty), (it.notes||"").replaceAll(",",";")].join(",")));
-      const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8"});
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement("a"); a.href=url; a.download=`order-${period==='MT'?'Mon-Thu':'Fri-Sun'}.csv`; a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    // ===== 拉取 items =====
-    async function fetchItems(){
-      try{
-        const { data, error } = await db.from("items").select("*").order("item");
-        if (error) throw error;
-        STATE.items = data || [];
-        render();
-      }catch(e){ console.error(e); alert("Failed to load items: " + (e.message || e)); }
-    }
-
-    // 启动
-    render();
-  </script>
-</body>
+window.onload = render;
+</script>
+</head>
+<body></body>
 </html>
