@@ -1,10 +1,12 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Par Order Login Tracker — Single File</title>
+  <title>Par Order — Auto Only</title>
+  <!-- Supabase SDK -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <!-- 样式（与你之前的风格一致） -->
   <style>
     :root{ --bg:#0b1020; --card:#111731; --ink:#f6f7fb; --muted:#9aa3b2; --accent:#5ed9a6; --line:#202a52; }
     *{ box-sizing:border-box }
@@ -37,127 +39,184 @@
 </head>
 <body>
   <div id="app"></div>
+
   <script>
-    // CONFIG
+    // ===== 配置（已填你的 Supabase URL & anon key）=====
     const APP_CONFIG = {
       SUPABASE_URL: "https://ehfhcgzsirgebrfofaph.supabase.co",
       SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVoZmhjZ3pzaXJnZWJyZm9mYXBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTQ1OTg5MjMsImV4cCI6MjA3MDE3NDkyM30.OOnzt-mCdQNYU3b17O3vtDTrPA2AmJPij8OhfnvMAN0",
-      PASSWORD: "000"
+      PASSWORD: "000" // 记得上线后改掉
     };
     const db = supabase.createClient(APP_CONFIG.SUPABASE_URL, APP_CONFIG.SUPABASE_ANON_KEY);
 
-    // Helpers
+    // ===== 小工具 =====
     const $ = (id)=>document.getElementById(id);
     const el = (tag, cls, html)=>{ const n=document.createElement(tag); if(cls) n.className=cls; if(html!=null) n.innerHTML=html; return n; };
-    function todayPeriodKey(){ const d=new Date().getDay(); if(d===0)return'FS'; if(d===3)return'MT'; if(d>=1&&d<=4)return'MT'; return'FS'; }
-    function escapeHtml(s){ return (s||"").replace(/[&<>]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c])); }
+    const qs = new URLSearchParams(location.search);
+    function todayPeriodKey(){
+      const ov = qs.get("period"); // 可用 ?period=MT / ?period=FS 临时覆盖
+      if (ov === "MT" || ov === "FS") return ov;
+      const d = new Date().getDay(); // 0=Sun, 3=Wed
+      if (d === 0) return "FS";      // 周日 → Fri–Sun
+      if (d === 3) return "MT";      // 周三 → Mon–Thu
+      if (d >= 1 && d <= 4) return "MT";
+      return "FS";
+    }
+    const escapeHtml = (s)=> (s||"").replace(/[&<>]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c]));
 
+    // ===== 全局状态（进入即自动模式）=====
     let STATE = { authed:false, name:"", period:todayPeriodKey(), items:[], stocks:{}, submitting:false };
 
+    // ===== 渲染入口 =====
     function render(){
-      const root = $("app"); root.innerHTML="";
+      const root = $("app"); root.innerHTML = "";
       if(!STATE.authed){ root.appendChild(ViewLogin()); return; }
       if(!STATE.items.length){ root.appendChild(ViewLoading()); fetchItems(); return; }
       root.appendChild(ViewMain());
     }
 
+    // ===== 视图：登录 =====
     function ViewLogin(){
       const wrap = el("div","wrap");
       const card = el("div","card section");
-      card.appendChild(el("h1",null,"Par Order Login"));
-      card.appendChild(el("p","muted","Enter password to proceed."));
+      card.appendChild(el("h1",null,"Par Order"));
+      card.appendChild(el("p","muted","请输入密码进入（自动按日期选择周期）。"));
       const row = el("div","row");
       const pwd = el("input"); pwd.type="password"; pwd.placeholder="Password";
-      const name = el("input"); name.type="text"; name.placeholder="Your name/initials (optional)";
+      const name= el("input"); name.type="text"; name.placeholder="Your name/initials (optional)";
       const btn = el("button","primary","Continue");
-      btn.onclick = ()=>{ if(pwd.value===APP_CONFIG.PASSWORD){ STATE.authed=true; STATE.name=name.value.trim(); render(); } else alert("Wrong password."); };
+      btn.onclick=()=>{ if(pwd.value===APP_CONFIG.PASSWORD){ STATE.authed=true; STATE.name=name.value.trim(); render(); } else alert("Wrong password."); };
       [pwd,name].forEach(i=>i.addEventListener("keydown",e=>{ if(e.key==="Enter") btn.click(); }));
       setTimeout(()=>pwd.focus(),0);
-      row.append(pwd,name,btn);
-      card.appendChild(row);
-      card.appendChild(el("div","hr"));
-      card.appendChild(el("p","muted",`Today suggests ordering for: <b>${STATE.period==='MT'?'Mon–Thu':'Fri–Sun'}</b>`));
+      row.append(pwd,name,btn); card.appendChild(row); card.appendChild(el("div","hr"));
+      const label = STATE.period==='MT'?'Mon–Thu':'Fri–Sun';
+      const tip = qs.get("period") ? `（已用 ?period=${qs.get("period")} 覆盖）` : "";
+      card.appendChild(el("p","muted",`当前周期：<b>${label}</b> ${tip}`));
       wrap.appendChild(card); return wrap;
     }
-    function ViewLoading(){ const w=el("div","wrap"); const c=el("div","card section"); c.appendChild(el("p",null,"Loading items from Supabase…")); w.appendChild(c); return w; }
 
+    // ===== 视图：加载中 =====
+    function ViewLoading(){
+      const w=el("div","wrap"); const c=el("div","card section");
+      c.appendChild(el("p",null,"Loading items from Supabase…")); w.appendChild(c); return w;
+    }
+
+    // ===== 视图：主页面（无周期按钮，输入实时更新）=====
     function ViewMain(){
-      const period=STATE.period;
-      const rows=STATE.items.map(it=>{
-        const par = period==='MT' ? Number(it.par_mt||0) : Number(it.par_fs||0);
+      const period = STATE.period;
+
+      // 计算行
+      const rows = STATE.items.map(it=>{
+        const par   = period==='MT' ? Number(it.par_mt||0) : Number(it.par_fs||0);
         const stock = Number(STATE.stocks[it.id]||0);
-        const need = Math.max(par - stock, 0);
+        const need  = Math.max(par - stock, 0);
         return { ...it, par, stock, need };
       });
+
       const orderList = rows.filter(r=>r.need>0).map(r=>({ item:r.item, unit:r.unit||"", qty:r.need, notes:r.notes||"" }));
-      const summaryText = `Order for ${period==='MT'?'Mon–Thu':'Fri–Sun'} (auto)
-` + (orderList.map(t=>`- ${t.item} — ${t.qty} ${t.unit}`).join("\n")||"(No items)");
+      const summaryText = `Order for ${period==='MT'?'Mon–Thu':'Fri–Sun'} (auto)\n` +
+        (orderList.map(t=>`- ${t.item} — ${t.qty} ${t.unit}`).join("\n") || "(No items)");
 
-      const wrap=el("div","wrap");
-      const head=el("div","card section");
-      head.appendChild(el("div",null,`<header><h1>Par Order – ${period==='MT'?'Mon–Thu':'Fri–Sun'}</h1></header><p class="muted small">Rule: Wednesday night → Mon–Thu; Sunday night → Fri–Sun.</p>`));
-      const controls=el("div","row");
-      const btnMT=el("button","ghost","Mon–Thu"); btnMT.onclick=()=>{STATE.period='MT'; render();};
-      const btnFS=el("button","ghost","Fri–Sun"); btnFS.onclick=()=>{STATE.period='FS'; render();};
-      const btnAuto=el("button","ghost","Auto"); btnAuto.onclick=()=>{STATE.period=todayPeriodKey(); render();};
-      const btnCopy=el("button","ghost","Copy Summary"); btnCopy.onclick=()=>{navigator.clipboard.writeText(summaryText); alert("Copied.");};
-      const btnCSV=el("button","ghost","Export CSV"); btnCSV.onclick=()=>{exportCSV(orderList, period);};
-      controls.append(btnMT,btnFS,btnAuto,btnCopy,btnCSV); head.appendChild(controls); wrap.appendChild(head);
+      const wrap = el("div","wrap");
 
-      const tableCard=el("div","card section");
-      const table=el("table");
-      table.innerHTML=`<thead><tr><th>Item</th><th>Unit</th><th>Par</th><th>Current Stock</th><th>This Order</th><th>Notes</th></tr></thead>`;
-      const tbody=el("tbody");
+      // 顶部（只有复制、导出）
+      const head = el("div","card section");
+      head.innerHTML = `<header><h1>Par Order – ${period==='MT'?'Mon–Thu':'Fri–Sun'}</h1></header>
+        <p class="muted small">已自动按日期选择周期（需要临时改可用 ?period=MT/FS 覆盖）。</p>`;
+      const controls = el("div","row");
+      const btnCopy = el("button","ghost","Copy Summary"); btnCopy.onclick=()=>{ navigator.clipboard.writeText(summaryText); alert("Copied."); };
+      const btnCSV  = el("button","ghost","Export CSV");   btnCSV.onclick = ()=> exportCSV(orderList, period);
+      controls.append(btnCopy, btnCSV); head.appendChild(controls); wrap.appendChild(head);
+
+      // 表格（输入时即时更新右侧 This Order pill）
+      const tableCard = el("div","card section");
+      const table = el("table");
+      table.innerHTML = `<thead><tr>
+        <th>Item</th><th>Unit</th><th>Par</th><th>Current Stock</th><th>This Order</th><th>Notes</th>
+      </tr></thead>`;
+      const tbody = el("tbody");
+
       rows.forEach(r=>{
-        const tr=el("tr");
-        const stock=el("input"); stock.type="number"; stock.step="0.01"; stock.min="0"; stock.value=STATE.stocks[r.id]||""; stock.oninput=()=>{STATE.stocks[r.id]=Number(stock.value||0);};
+        const tr = el("tr");
+        const stockInput = el("input"); stockInput.type="number"; stockInput.step="0.01"; stockInput.min="0";
+        stockInput.value = STATE.stocks[r.id] ?? "";
+        const pill = el("span","pill " + (r.need>0?"ok":"zero"), r.need>0 ? String(r.need) : "0");
+
+        stockInput.oninput = ()=>{
+          const val = Number(stockInput.value || 0);
+          STATE.stocks[r.id] = val;
+          const need = Math.max(r.par - val, 0);
+          pill.textContent = String(need);
+          pill.className = "pill " + (need>0 ? "ok" : "zero");
+        };
+
         tr.appendChild(el("td",null,escapeHtml(r.item)));
         tr.appendChild(el("td",null,escapeHtml(r.unit||"")));
         tr.appendChild(el("td",null,String(r.par)));
-        const tdS=el("td"); tdS.appendChild(stock); tr.appendChild(tdS);
-        tr.appendChild(el("td",null,`<span class="pill ${r.need>0?'ok':'zero'}">${r.need>0?r.need:0}</span>`));
+        const tdS = el("td"); tdS.appendChild(stockInput); tr.appendChild(tdS);
+        const tdNeed = el("td"); tdNeed.appendChild(pill); tr.appendChild(tdNeed);
         tr.appendChild(el("td",null,escapeHtml(r.notes||"")));
         tbody.appendChild(tr);
       });
+
       table.appendChild(tbody); tableCard.appendChild(table); wrap.appendChild(tableCard);
 
-      const foot=el("div","card section");
-      const btnSubmit=el("button","primary",STATE.submitting?"Submitting…":"Save Log to Supabase");
-      btnSubmit.disabled=STATE.submitting;
-      btnSubmit.onclick=async()=>{
-        if(orderList.length===0 && !confirm("No items to order. Save an empty log?")) return;
-        STATE.submitting=true; render();
+      // 底部：保存日志（可选）
+      const foot = el("div","card section");
+      const row = el("div","row");
+      const btnSubmit = el("button","primary", STATE.submitting ? "Submitting…" : "Save Log to Supabase");
+      btnSubmit.disabled = STATE.submitting;
+      btnSubmit.onclick = async ()=>{
+        // 重新生成一次最新 orderList（以当前输入为准）
+        const freshList = STATE.items.map(it=>{
+          const par   = period==='MT' ? Number(it.par_mt||0) : Number(it.par_fs||0);
+          const stock = Number(STATE.stocks[it.id]||0);
+          const need  = Math.max(par - stock, 0);
+          return { item:it.item, unit:it.unit||"", qty:need, notes:it.notes||"" };
+        }).filter(x=>x.qty>0);
+
+        if (freshList.length===0 && !confirm("No items to order. Save an empty log?")) return;
+
+        STATE.submitting = true; render();
         try{
-          const payload={ period, operator:STATE.name||"anon", items:orderList, stocks:STATE.stocks, generated_at:new Date().toISOString() };
-          const { error } = await db.from("order_logs").insert({ period, made_by: STATE.name||"anon", payload });
-          if(error) throw error; alert("Saved to Supabase (order_logs).");
-        }catch(e){ console.error(e); alert("Failed to save log: "+(e.message||e)); }
+          const payload = { period, operator: STATE.name || "anon", items: freshList, stocks: STATE.stocks, generated_at: new Date().toISOString() };
+          const { error } = await db.from("order_logs").insert({ period, made_by: STATE.name || "anon", payload });
+          if (error) throw error;
+          alert("Saved to Supabase (order_logs).");
+        }catch(e){ console.error(e); alert("Failed to save log: " + (e.message || e)); }
         finally{ STATE.submitting=false; render(); }
       };
-      foot.appendChild(btnSubmit);
+      row.appendChild(btnSubmit);
+      foot.appendChild(row);
       foot.appendChild(el("div","hr"));
-      foot.appendChild(el("div","list small", `<div><span class="k">Preview:</span></div><pre class="v" style="white-space:pre-wrap;margin:6px 0 0">${escapeHtml(summaryText)}</pre>`));
+      foot.appendChild(el("div","list small", `<div><span class="k">Preview:</span></div>
+        <pre class="v" style="white-space:pre-wrap;margin:6px 0 0">${escapeHtml(summaryText)}</pre>`));
       wrap.appendChild(foot);
 
       return wrap;
     }
 
+    // ===== 导出 CSV =====
     function exportCSV(list, period){
       const lines = [["Item","Unit","Qty","Notes"].join(",")];
-      list.forEach(it=>{ lines.push([it.item, it.unit||"", String(it.qty), (it.notes||"").replaceAll(",",";")].join(",")); });
-      const blob=new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8"});
-      const url=URL.createObjectURL(blob); const a=document.createElement("a");
-      a.href=url; a.download=`order-${period==='MT'?'Mon-Thu':'Fri-Sun'}.csv`; a.click(); URL.revokeObjectURL(url);
+      list.forEach(it=>lines.push([it.item, it.unit||"", String(it.qty), (it.notes||"").replaceAll(",",";")].join(",")));
+      const blob = new Blob([lines.join("\n")], {type:"text/csv;charset=utf-8"});
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a"); a.href=url; a.download=`order-${period==='MT'?'Mon-Thu':'Fri-Sun'}.csv`; a.click();
+      URL.revokeObjectURL(url);
     }
 
+    // ===== 拉取 items =====
     async function fetchItems(){
       try{
         const { data, error } = await db.from("items").select("*").order("item");
-        if(error) throw error;
-        STATE.items = data||[]; render();
-      }catch(e){ console.error(e); alert("Failed to load items: "+(e.message||e)); }
+        if (error) throw error;
+        STATE.items = data || [];
+        render();
+      }catch(e){ console.error(e); alert("Failed to load items: " + (e.message || e)); }
     }
 
+    // 启动
     render();
   </script>
 </body>
